@@ -4,11 +4,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import streamlit as st,pandas as pd
 from src.core import load,ingest,search,save
 from src.config import UPLOADS,TOP_K
+from src.knowledge_graph import (build_knowledge_graph,render_knowledge_graph,)
+import networkx as nx
 
 st.set_page_config(page_title="PharmaGraph-RAG",page_icon="🧬",layout="wide")
 st.title("🧬 PharmaGraph-RAG")
 st.caption("Hybrid pharmacogenomic evidence retrieval prototype for biomedical researchers")
-page=st.sidebar.radio("Navigate",["Search evidence","Upload data","Dataset overview","Research notes"])
+page=st.sidebar.radio("Navigate",["Search evidence", "Knowledge Graph","Upload data","Dataset overview","Research notes"])
 
 if page=="Search evidence":
  st.warning("Research prototype only. Not clinical interpretation, diagnosis or prescribing advice.")
@@ -28,6 +30,39 @@ if page=="Search evidence":
    with st.expander(f"{r.id} | score={h['score']:.3f} | {r.source}"):
     st.write(r.text);st.json({"gene":r.gene,"chemical":r.chemical,"relation":r.relation,"PMID":r.pmid,"split":r.split,"source_id":r.source_id,"url":r.url,"BM25":h["bm25"],"TFIDF":h["tfidf"],"graph":h["graph"]})
     if r.url:st.markdown(f"[Open source]({r.url})")
+
+elif page == "Knowledge Graph":
+    st.header("Biomedical Knowledge Graph")
+    st.caption(
+        "Explore entities, relationships, and their supporting evidence."
+    )
+
+    records = load()
+
+    max_edges = st.slider(
+        "Maximum relationships to display",
+        min_value=50,
+        max_value=1000,
+        value=300,
+        step=50,
+    )
+
+    graph, evidence = build_knowledge_graph(
+        records,
+        max_edges=max_edges,
+    )
+
+    if graph.number_of_nodes():
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric("Entities", graph.number_of_nodes())
+        col2.metric("Relationships", graph.number_of_edges())
+        col3.metric(
+            "Connected components",
+            nx.number_weakly_connected_components(graph),
+        )
+
+    render_knowledge_graph(graph, evidence)
 
 elif page=="Upload data":
  st.write("CSV, TSV, JSON, JSONL and TXT accepted. Recommended fields: text, gene, chemical, relation, pmid, source, source_id, split, evidence_type, url.")

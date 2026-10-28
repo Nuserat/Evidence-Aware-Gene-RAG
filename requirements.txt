@@ -12,3 +12,4 @@ openai>=1.40
 python-multipart>=0.0.9
 pytest>=8.0
 python-dotenv
+pyvis
