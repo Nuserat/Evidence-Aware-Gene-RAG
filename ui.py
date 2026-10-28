@@ -31,60 +31,31 @@ if page=="Search evidence":
     st.write(r.text);st.json({"gene":r.gene,"chemical":r.chemical,"relation":r.relation,"PMID":r.pmid,"split":r.split,"source_id":r.source_id,"url":r.url,"BM25":h["bm25"],"TFIDF":h["tfidf"],"graph":h["graph"]})
     if r.url:st.markdown(f"[Open source]({r.url})")
 
+
 elif page == "Knowledge Graph":
+    from src.knowledge_graph import (
+        build_knowledge_graph,
+        render_knowledge_graph,
+    )
+
     st.header("Biomedical Knowledge Graph")
     st.caption(
-        "Explore entities, relationships, and their supporting evidence."
+        "Explore evidence-linked entities and relationships. "
+        "This is a research tool, not clinical decision support."
     )
 
     records = load()
-
     max_edges = st.slider(
-        "Maximum relationships to display",
+        "Edges to visualize",
         min_value=50,
-        max_value=1000,
+        max_value=2000,
         value=300,
         step=50,
     )
 
-    graph, evidence = build_knowledge_graph(
-        records,
-        max_edges=max_edges,
-    )
+    graph, evidence = build_knowledge_graph(records)
+    render_knowledge_graph(graph, evidence, max_edges=max_edges)
 
-    if graph.number_of_nodes():
-      high_confidence_spos = 0
-      rdf_triples = set()
-
-    for source, target, data in graph.edges(data=True):
-        relation = str(data.get("label", "ASSOCIATED_WITH"))
-        rdf_triples.add((source, relation, target))
-
-        # Count high-confidence relationships only when
-        # an actual confidence score is available.
-        confidence = data.get("confidence")
-        if confidence is not None:
-            try:
-                if float(confidence) >= 0.8:
-                    high_confidence_spos += 1
-            except (TypeError, ValueError):
-                pass
-
-    entities = graph.number_of_nodes()
-    relationships = graph.number_of_edges()
-    components = nx.number_weakly_connected_components(graph)
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Nodes", entities)
-    col2.metric("Edges", relationships)
-    col3.metric("RDF Triples", len(rdf_triples))
-    col4.metric("Connected components", components)
-
-    col5, col6 = st.columns(2)
-    col5.metric("High-confidence SPOs", high_confidence_spos)
-    col6.metric("Entities", entities)
-
-    render_knowledge_graph(graph, evidence)
 
 elif page=="Upload data":
  st.write("CSV, TSV, JSON, JSONL and TXT accepted. Recommended fields: text, gene, chemical, relation, pmid, source, source_id, split, evidence_type, url.")

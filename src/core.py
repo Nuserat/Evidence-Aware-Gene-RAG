@@ -69,6 +69,7 @@ def val(row,key):
     return ""
 def convert(row,fallback):
     text = val(row, "text")
+    
     if not text:
         entity_1 = str(row.get("entity_1") or "").strip()
         entity_2 = str(row.get("entity_2") or "").strip()
@@ -83,9 +84,32 @@ def convert(row,fallback):
     src=val(row,"source") or fallback
     sid=val(row,"source_id") or hashlib.sha1((text+gene+chem+rel+src).encode()).hexdigest()[:16]
     rid=str(row.get("id") or f"{src}:{sid}")
-    return Record(id=rid,text=text,gene=gene,chemical=chem,relation=rel,pmid=val(row,"pmid"),
-      source=src,source_id=sid,split=val(row,"split"),
-      evidence_type=val(row,"evidence_type") or "literature",url=val(row,"url"))
+
+   
+    confidence_raw = val(row, "confidence")
+    try:
+        confidence = float(confidence_raw) if confidence_raw else None
+    except (TypeError, ValueError):
+        confidence = None
+
+    return Record(
+        id=rid,
+        text=text,
+        gene=gene,
+        chemical=chem,
+        relation=rel,
+        entity_1=val(row, "entity_1"),
+        entity_2=val(row, "entity_2"),
+        pmid=val(row, "pmid"),
+        source=src,
+        source_id=sid,
+        split=val(row, "split"),
+        evidence_type=val(row, "evidence_type") or "literature",
+        url=val(row, "url"),
+        confidence=confidence,
+    )
+
+
 def read_records(path,source):
     p=Path(path); ext=p.suffix.lower()
     if ext in (".csv",".tsv"):
