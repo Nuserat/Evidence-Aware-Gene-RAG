@@ -53,14 +53,36 @@ elif page == "Knowledge Graph":
     )
 
     if graph.number_of_nodes():
-        col1, col2, col3 = st.columns(3)
+      high_confidence_spos = 0
+      rdf_triples = set()
 
-        col1.metric("Entities", graph.number_of_nodes())
-        col2.metric("Relationships", graph.number_of_edges())
-        col3.metric(
-            "Connected components",
-            nx.number_weakly_connected_components(graph),
-        )
+    for source, target, data in graph.edges(data=True):
+        relation = str(data.get("label", "ASSOCIATED_WITH"))
+        rdf_triples.add((source, relation, target))
+
+        # Count high-confidence relationships only when
+        # an actual confidence score is available.
+        confidence = data.get("confidence")
+        if confidence is not None:
+            try:
+                if float(confidence) >= 0.8:
+                    high_confidence_spos += 1
+            except (TypeError, ValueError):
+                pass
+
+    entities = graph.number_of_nodes()
+    relationships = graph.number_of_edges()
+    components = nx.number_weakly_connected_components(graph)
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Nodes", entities)
+    col2.metric("Edges", relationships)
+    col3.metric("RDF Triples", len(rdf_triples))
+    col4.metric("Connected components", components)
+
+    col5, col6 = st.columns(2)
+    col5.metric("High-confidence SPOs", high_confidence_spos)
+    col6.metric("Entities", entities)
 
     render_knowledge_graph(graph, evidence)
 
