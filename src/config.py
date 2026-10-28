@@ -1,11 +1,10 @@
-
 import os
 from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 ROOT=Path(__file__).resolve().parents[1]
-DATA=ROOT/"data"/"processed"/"evidence.jsonl"
-UPLOADS=ROOT/"data"/"uploads"
+DATA=ROOT/"dataset"/"UPLOADS"/"evidence.jsonl"
+UPLOADS=ROOT/"dataset"
 UPLOADS.mkdir(parents=True,exist_ok=True)
 API_KEY=os.getenv("OPENAI_API_KEY","").strip()
 MODEL=os.getenv("OPENAI_MODEL","gpt-4o-mini")

@@ -3,7 +3,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import streamlit as st,pandas as pd
 from src.core import load,ingest,search,save
-from src.config import dataset,TOP_K
+from src.config import UPLOADS,TOP_K
 
 st.set_page_config(page_title="PharmaGraph-RAG",page_icon="🧬",layout="wide")
 st.title("🧬 PharmaGraph-RAG")
@@ -32,7 +32,7 @@ elif page=="Upload data":
  source=st.text_input("Source label","public_dataset")
  if st.button("Index files",type="primary",disabled=not ups):
   for f in ups:
-   p=dataset/Path(f.name).name;p.write_bytes(f.getbuffer());n,total=ingest(p,source)
+   p=UPLOADS/Path(f.name).name;p.write_bytes(f.getbuffer());n,total=ingest(p,source)
   st.success(f"Imported {n} records; total indexed: {total}")
 elif page=="Dataset overview":
  rs=load();st.metric("Indexed records",len(rs))
