@@ -7,18 +7,23 @@ from sklearn.metrics.pairwise import cosine_similarity
 from pydantic import BaseModel
 from .config import DATA,API_KEY,MODEL,MIN_EVIDENCE,MIN_SCORE
 
+
 class Record(BaseModel):
-    id:str
-    text:str
-    gene:str=""
-    chemical:str=""
-    relation:str=""
-    pmid:str=""
-    source:str="uploaded"
-    source_id:str=""
-    split:str=""
-    evidence_type:str="literature"
-    url:str=""
+    id: str
+    text: str
+    gene: str = ""
+    chemical: str = ""
+    relation: str = ""
+    entity_1: str = ""
+    entity_2: str = ""
+    pmid: str = ""
+    source: str = "uploaded"
+    source_id: str = ""
+    split: str = ""
+    evidence_type: str = "literature"
+    url: str = ""
+    confidence: float | None = None
+
 
 ALIASES = {
     "text": [
@@ -45,7 +50,16 @@ ALIASES = {
     ],
     "split": ["split", "partition"],
     "evidence_type": ["evidence_type", "record_type"],
-    "url": ["url", "link"]
+    "url": ["url", "link"], 
+    "entity_1": [
+        "entity_1", "entity1", "subject", "head", "source_entity"
+    ],
+    "entity_2": [
+        "entity_2", "entity2", "object", "tail", "target_entity"
+    ],
+    "confidence": [
+        "confidence", "confidence_score", "probability"
+    ]
 }
 
 def val(row,key):
