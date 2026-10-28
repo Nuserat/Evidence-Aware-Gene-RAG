@@ -17,8 +17,11 @@ if page=="Search evidence":
  if st.button("Retrieve evidence",type="primary",disabled=not q.strip()):
   hits,res=search(q,k)
   st.caption(f"Indexed: {len(load())}; retrieved: {len(hits)}")
-  st.warning("Abstention: insufficient evidence") if res["abstained"] else st.success("Evidence retrieved; verify source records")
-  st.markdown(res["answer"])
+  if res["abstained"]:
+    st.warning("Abstention: insufficient evidence")
+  else:
+    st.success("Evidence retrieved; verify source records")
+  #st.markdown(res["answer"])
   st.subheader("Retrieved records")
   for h in hits:
    r=h["record"]
@@ -43,7 +46,7 @@ else:
  st.markdown("""
 **Current baseline:** BM25 lexical retrieval + TF-IDF cosine retrieval + exact gene/chemical/relation matching.
 
-**Required PhD extensions:** biomedical sentence-transformer embeddings; official CHEMPROT and verified GM-CIHT adapters; multi-hop graph retrieval; source-aware reranking; contradiction classification; independent claim-level entailment verification; calibrated abstention; expert-reviewed evaluation.
+**Required  extensions:** biomedical sentence-transformer embeddings; official CHEMPROT and verified GM-CIHT adapters; multi-hop graph retrieval; source-aware reranking; contradiction classification; independent claim-level entailment verification; calibrated abstention; expert-reviewed evaluation.
 
 CHEMPROT chemical-protein relations are not automatically clinical pharmacogenomic recommendations. Verify GM-CIHT's authoritative release, version, schema and licence before reporting benchmark results.
 """)

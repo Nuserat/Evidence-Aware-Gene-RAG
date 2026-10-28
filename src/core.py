@@ -20,24 +20,51 @@ class Record(BaseModel):
     evidence_type:str="literature"
     url:str=""
 
-ALIASES={
-"text":["text","sentence","abstract","passage","evidence","description"],
-"gene":["gene","gene_name","protein","protein_name","target"],
-"chemical":["chemical","chemical_name","drug","drug_name","compound"],
-"relation":["relation","relation_type","label","interaction","cpr"],
-"pmid":["pmid","pubmed_id"],"source":["source","dataset","database","corpus"],
-"source_id":["source_id","record_id","document_id","doc_id"],
-"split":["split","partition"],"evidence_type":["evidence_type","record_type"],
-"url":["url","link"]
+ALIASES = {
+    "text": [
+        "text", "evidence_text", "sentence", "sentence_text",
+        "abstract", "passage", "evidence", "description",
+        "statement", "context", "document_text"
+    ],
+    "gene": [
+        "gene", "gene_name", "protein", "protein_name",
+        "target", "gene_symbol"
+    ],
+    "chemical": [
+        "chemical", "chemical_name", "drug", "drug_name",
+        "compound", "drugbank_name"
+    ],
+    "relation": [
+        "relation", "relation_type", "label",
+        "interaction", "cpr", "predicate"
+    ],
+    "pmid": ["pmid", "pubmed_id"],
+    "source": ["source", "dataset", "database", "corpus"],
+    "source_id": [
+        "source_id", "record_id", "document_id", "doc_id"
+    ],
+    "split": ["split", "partition"],
+    "evidence_type": ["evidence_type", "record_type"],
+    "url": ["url", "link"]
 }
+
 def val(row,key):
     d={str(k).lower():v for k,v in row.items()}
     for alias in ALIASES[key]:
         if alias in d and d[alias] is not None: return re.sub(r"\s+"," ",str(d[alias])).strip()
     return ""
 def convert(row,fallback):
-    text=val(row,"text")
-    if not text:return None
+    text = val(row, "text")
+    if not text:
+        entity_1 = str(row.get("entity_1") or "").strip()
+        entity_2 = str(row.get("entity_2") or "").strip()
+        relation = val(row, "relation")
+        if entity_1 or entity_2:
+            text = " ".join(
+            part for part in [entity_1, relation, entity_2] if part
+        )
+        if not text:
+            return None
     gene,chem,rel=val(row,"gene"),val(row,"chemical"),val(row,"relation")
     src=val(row,"source") or fallback
     sid=val(row,"source_id") or hashlib.sha1((text+gene+chem+rel+src).encode()).hexdigest()[:16]
@@ -59,8 +86,50 @@ def read_records(path,source):
     else: raise ValueError("Supported: csv, tsv, json, jsonl, txt")
     return [r for row in rows if isinstance(row,dict) if (r:=convert(row,source))]
 def load():
-    if not DATA.exists():return []
-    return [Record.model_validate_json(x) for x in DATA.read_text(encoding="utf-8").splitlines() if x.strip()]
+    if not DATA.exists():
+        return []
+
+    records = []
+    migrated = False
+
+    for line_no, line in enumerate(
+        DATA.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        if not line.strip():
+            continue
+
+        try:
+            row = json.loads(line)
+
+            if not isinstance(row, dict):
+                print(f"Skipping invalid record at line {line_no}")
+                continue
+
+            try:
+                record = Record.model_validate(row)
+                records.append(record)
+                continue
+            except Exception:
+                # Convert legacy records to the current schema.
+                migrated = True
+
+            record = convert(row, "legacy")
+
+            if record is not None:
+                records.append(record)
+            else:
+                print(
+                    f"Skipping record at line {line_no}: "
+                    "no usable evidence text found."
+                )
+
+        except (json.JSONDecodeError, TypeError) as exc:
+            print(f"Skipping malformed JSON at line {line_no}: {exc}")
+
+    if migrated:
+        save(records)
+
+    return records
 def save(records):
     DATA.parent.mkdir(parents=True,exist_ok=True)
     seen=set(); clean=[]
