@@ -3,7 +3,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 ROOT=Path(__file__).resolve().parents[1]
-DATA=ROOT/"dataset"/"UPLOADS"/"evidence.jsonl"
+DATA=ROOT/"dataset"/"processed"/"evidence.jsonl"
 UPLOADS=ROOT/"dataset"
 UPLOADS.mkdir(parents=True,exist_ok=True)
 API_KEY=os.getenv("OPENAI_API_KEY","").strip()
