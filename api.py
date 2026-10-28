@@ -1,11 +1,10 @@
-
 import sys
 from pathlib import Path
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fastapi import FastAPI,UploadFile,File,HTTPException
 from pydantic import BaseModel
 from src.core import search,ingest,load
-from src.config import UPLOADS
+from src.config import dataset
 app=FastAPI(title="PharmaGraph-RAG API",version="0.1")
 class Q(BaseModel):
  question:str
