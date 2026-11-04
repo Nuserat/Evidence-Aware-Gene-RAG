@@ -7,22 +7,54 @@ from sklearn.metrics.pairwise import cosine_similarity
 from pydantic import BaseModel
 from .config import DATA,API_KEY,MODEL,MIN_EVIDENCE,MIN_SCORE
 
+from pydantic import BaseModel, Field
+
 
 class Record(BaseModel):
     id: str
     text: str
+
+    # General relationship representation
+    subject: str = ""
+    subject_type: str = "UNKNOWN"
+    subject_id: str = ""
+
+    predicate: str = ""
+
+    object: str = ""
+    object_type: str = "UNKNOWN"
+    object_id: str = ""
+
+    # Evidence provenance
+    source: str = "uploaded"
+    source_id: str = ""
+    pmid: str = ""
+    doi: str = ""
+    url: str = ""
+    evidence_type: str = "literature"
+    dataset_version: str = ""
+    publication_year: int | None = None
+
+    # Evidence interpretation
+    evidence_polarity: str = "NOT_ASSESSED"
+    confidence: float | None = None
+    statistical_significance: str = ""
+    effect_direction: str = ""
+    effect_size: str = ""
+
+    # Original compatibility fields
     gene: str = ""
     chemical: str = ""
     relation: str = ""
+
+    # Legacy entity fields
     entity_1: str = ""
     entity_2: str = ""
-    pmid: str = ""
-    source: str = "uploaded"
-    source_id: str = ""
+
     split: str = ""
-    evidence_type: str = "literature"
-    url: str = ""
-    confidence: float | None = None
+
+    original_record: dict = Field(default_factory=dict)
+
 
 
 ALIASES = {
@@ -59,7 +91,69 @@ ALIASES = {
     ],
     "confidence": [
         "confidence", "confidence_score", "probability"
-    ]
+    ],
+
+    "subject": [
+    "subject", "subject_name", "entity_1",
+    "entity1", "head", "source_entity"
+    ],
+
+"subject_type": [
+    "subject_type", "entity_1_type",
+    "entity1_type", "head_type"
+],
+
+"subject_id": [
+    "subject_id", "entity_1_id",
+    "entity1_id", "head_id"
+],
+
+"predicate": [
+    "predicate", "relation", "relation_type",
+    "interaction", "label", "cpr"
+],
+
+"object": [
+    "object", "object_name", "entity_2",
+    "entity2", "tail", "target_entity"
+],
+
+"object_type": [
+    "object_type", "entity_2_type",
+    "entity2_type", "tail_type"
+],
+
+"object_id": [
+    "object_id", "entity_2_id",
+    "entity2_id", "tail_id"
+],
+
+"doi": ["doi", "digital_object_identifier"],
+
+"evidence_polarity": [
+    "evidence_polarity", "polarity", "finding"
+],
+
+"publication_year": [
+    "publication_year", "year", "pub_year"
+],
+
+"dataset_version": [
+    "dataset_version", "version"
+],
+
+"statistical_significance": [
+    "statistical_significance", "significance", "p_value"
+],
+
+"effect_direction": [
+    "effect_direction", "direction"
+],
+
+"effect_size": [
+    "effect_size", "odds_ratio", "hazard_ratio"
+],
+
 }
 
 def val(row,key):
@@ -168,14 +262,38 @@ def load():
         save(records)
 
     return records
+
 def save(records):
-    DATA.parent.mkdir(parents=True,exist_ok=True)
-    seen=set(); clean=[]
-    for r in records:
-        key=(r.text.casefold(),r.gene.casefold(),r.chemical.casefold(),r.relation.casefold())
-        if key not in seen:seen.add(key);clean.append(r)
-    DATA.write_text("".join(x.model_dump_json()+"\n" for x in clean),encoding="utf-8")
+    DATA.parent.mkdir(parents=True, exist_ok=True)
+
+    seen = set()
+    clean = []
+
+    for record in records:
+        # Deduplicate only the same source assertion.
+        key = (
+            record.id,
+            record.source,
+            record.source_id,
+            record.pmid,
+            record.doi,
+        )
+
+        if key not in seen:
+            seen.add(key)
+            clean.append(record)
+
+    DATA.write_text(
+        "".join(
+            record.model_dump_json() + "\n"
+            for record in clean
+        ),
+        encoding="utf-8",
+    )
+
     return len(clean)
+
+
 def ingest(path,source):
     new=read_records(path,source)
     return len(new),save(load()+new)

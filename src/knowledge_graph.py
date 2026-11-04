@@ -2,7 +2,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import networkx as nx
 from pyvis.network import Network
-
+import re
 
 def get_value(record, key, default=""):
     value = getattr(record, key, None)
@@ -15,72 +15,105 @@ def get_value(record, key, default=""):
 def clean(value):
     return str(value or "").strip()
 
+def normalize_name(name):
+    return re.sub(
+        r"\s+",
+        " ",
+        str(name or "").strip().casefold()
+    )
 
-def build_knowledge_graph(records, max_edges=300):
-    # Keep the complete graph for accurate graph metrics.
+
+def entity_key(name, entity_type, canonical_id=""):
+    entity_type = entity_type or "UNKNOWN"
+
+    # Prefer an authoritative identifier when one is supplied.
+    if canonical_id:
+        return f"{entity_type}:{canonical_id.strip().upper()}"
+
+    # Do not automatically merge different names without evidence
+    # that they represent the same biological entity.
+    return f"{entity_type}:{normalize_name(name)}"
+
+
+def build_knowledge_graph(records):
     graph = nx.MultiDiGraph()
     evidence = {}
+
     for record in records:
-        gene = clean(get_value(record, "gene"))
-        chemical = clean(get_value(record, "chemical"))
-        entity_1 = clean(get_value(record, "entity_1"))
-        entity_2 = clean(get_value(record, "entity_2"))
-        relation = clean(get_value(record, "relation")) or "ASSOCIATED"
+        subject = record.subject or record.gene or record.entity_1
+        object_ = record.object or record.chemical or record.entity_2
 
-        if gene and chemical:
-            subject = gene
-            object_ = chemical
-            subject_type = "Gene"
-            object_type = "Chemical"
+        predicate = (
+            record.predicate
+            or record.relation
+            or "ASSOCIATED"
+        )
 
-        elif entity_1 and entity_2:
-            subject = entity_1
-            object_ = entity_2
-            subject_type = "Entity"
-            object_type = "Entity"
-
-        else:
-            # Do not invent a relationship from text alone.
+        if not subject or not object_:
             continue
 
-        subject_key = f"{subject_type}: {subject}"
-        object_key = f"{object_type}: {object_}"
+        subject_type = record.subject_type or "UNKNOWN"
+        object_type = record.object_type or "UNKNOWN"
+
+        source_key = entity_key(
+            subject,
+            subject_type,
+            record.subject_id,
+        )
+
+        target_key = entity_key(
+            object_,
+            object_type,
+            record.object_id,
+        )
 
         graph.add_node(
-            subject_key,
+            source_key,
             label=subject,
             entity_type=subject_type,
+            canonical_id=record.subject_id,
         )
+
         graph.add_node(
-            object_key,
+            target_key,
             label=object_,
             entity_type=object_type,
+            canonical_id=record.object_id,
         )
 
-        confidence = get_value(record, "confidence", None)
-        try:
-            confidence = (
-                float(confidence) if confidence is not None else None
-            )
-        except (TypeError, ValueError):
-            confidence = None
+        assertion = {
+            "assertion_id": record.id,
+            "predicate": predicate,
+            "evidence_id": record.id,
+            "evidence_text": record.text,
+            "evidence_polarity": record.evidence_polarity,
+            "confidence": record.confidence,
+            "source": record.source,
+            "source_id": record.source_id,
+            "pmid": record.pmid,
+            "doi": record.doi,
+            "url": record.url,
+            "evidence_type": record.evidence_type,
+            "dataset_version": record.dataset_version,
+            "publication_year": record.publication_year,
+            "statistical_significance": (
+                record.statistical_significance
+            ),
+            "effect_direction": record.effect_direction,
+            "effect_size": record.effect_size,
+        }
 
-        edge_key = graph.add_edge(
-            subject_key,
-            object_key,
-            label=relation,
-            confidence=confidence,
-            evidence_id=clean(get_value(record, "id")),
-            evidence_text=clean(get_value(record, "text")),
-            source=clean(get_value(record, "source")),
-            source_id=clean(get_value(record, "source_id")),
-            pmid=clean(get_value(record, "pmid")),
-            url=clean(get_value(record, "url")),
+        # Every assertion becomes a separate edge.
+        graph.add_edge(
+            source_key,
+            target_key,
+            key=record.id,
+            **assertion,
         )
 
-        evidence.setdefault(
-            (subject_key, object_key, relation), []
-        ).append(record)
+        triple = (source_key, predicate, target_key)
+
+        evidence.setdefault(triple, []).append(assertion)
 
     return graph, evidence
 
@@ -274,3 +307,55 @@ def render_knowledge_graph(graph, evidence, max_edges=300):
 
         if not found:
             st.info("This entity has no relationships in the graph.")
+
+
+def detect_evidence_conflicts(graph):
+    """
+    Detect explicit positive-vs-negative evidence for the same
+    normalized subject-predicate-object relationship.
+
+    Non-significant findings are not automatically treated as negative.
+    """
+    grouped = {}
+
+    for source, target, key, data in graph.edges(
+        keys=True, data=True
+    ):
+        predicate = str(
+            data.get("predicate") or data.get("label") or "ASSOCIATED"
+        ).strip().upper()
+
+        polarity = str(
+            data.get("evidence_polarity") or "NOT_ASSESSED"
+        ).strip().upper()
+
+        triple = (source, predicate, target)
+        grouped.setdefault(triple, []).append({
+            "source": source,
+            "target": target,
+            "predicate": predicate,
+            "polarity": polarity,
+            "assertion_id": data.get("assertion_id", str(key)),
+            "source_name": data.get("source", ""),
+            "source_id": data.get("source_id", ""),
+            "pmid": data.get("pmid", ""),
+            "doi": data.get("doi", ""),
+            "url": data.get("url", ""),
+            "evidence_text": data.get("evidence_text", ""),
+        })
+
+    conflicts = []
+
+    for (source, predicate, target), assertions in grouped.items():
+        polarities = {item["polarity"] for item in assertions}
+
+        if "POSITIVE" in polarities and "NEGATIVE" in polarities:
+            conflicts.append({
+                "subject": source,
+                "predicate": predicate,
+                "object": target,
+                "assertions": assertions,
+            })
+
+    return conflicts
+
