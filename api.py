@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from src.core import search,ingest,load
 from src.config import UPLOADS
 
-app=FastAPI(title="PharmaGraph-RAG API",version="0.1")
+app=FastAPI(title="GeneGraph-RAG API",version="0.1")
 class Q(BaseModel):
  question:str
  top_k:int=8

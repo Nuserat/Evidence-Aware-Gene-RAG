@@ -1,31 +1,24 @@
-import csv,json,re,hashlib
+from __future__ import annotations
+import csv, hashlib, json, re
 from pathlib import Path
+from typing import Any
 import numpy as np
+from pydantic import BaseModel, Field
 from rank_bm25 import BM25Okapi
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from pydantic import BaseModel
-from .config import DATA,API_KEY,MODEL,MIN_EVIDENCE,MIN_SCORE
-
-from pydantic import BaseModel, Field
-
+from .config import DATA, API_KEY, MODEL, MIN_EVIDENCE, MIN_SCORE
 
 class Record(BaseModel):
     id: str
     text: str
-
-    # General relationship representation
     subject: str = ""
     subject_type: str = "UNKNOWN"
     subject_id: str = ""
-
     predicate: str = ""
-
     object: str = ""
     object_type: str = "UNKNOWN"
     object_id: str = ""
-
-    # Evidence provenance
     source: str = "uploaded"
     source_id: str = ""
     pmid: str = ""
@@ -34,301 +27,239 @@ class Record(BaseModel):
     evidence_type: str = "literature"
     dataset_version: str = ""
     publication_year: int | None = None
-
-    # Evidence interpretation
     evidence_polarity: str = "NOT_ASSESSED"
     confidence: float | None = None
     statistical_significance: str = ""
     effect_direction: str = ""
     effect_size: str = ""
-
-    # Original compatibility fields
     gene: str = ""
     chemical: str = ""
     relation: str = ""
-
-    # Legacy entity fields
     entity_1: str = ""
     entity_2: str = ""
-
     split: str = ""
-
     original_record: dict = Field(default_factory=dict)
 
-
-
 ALIASES = {
-    "text": [
-        "text", "evidence_text", "sentence", "sentence_text",
-        "abstract", "passage", "evidence", "description",
-        "statement", "context", "document_text"
-    ],
-    "gene": [
-        "gene", "gene_name", "protein", "protein_name",
-        "target", "gene_symbol"
-    ],
-    "chemical": [
-        "chemical", "chemical_name", "drug", "drug_name",
-        "compound", "drugbank_name"
-    ],
-    "relation": [
-        "relation", "relation_type", "label",
-        "interaction", "cpr", "predicate"
-    ],
-    "pmid": ["pmid", "pubmed_id"],
-    "source": ["source", "dataset", "database", "corpus"],
-    "source_id": [
-        "source_id", "record_id", "document_id", "doc_id"
-    ],
-    "split": ["split", "partition"],
-    "evidence_type": ["evidence_type", "record_type"],
-    "url": ["url", "link"], 
-    "entity_1": [
-        "entity_1", "entity1", "subject", "head", "source_entity"
-    ],
-    "entity_2": [
-        "entity_2", "entity2", "object", "tail", "target_entity"
-    ],
-    "confidence": [
-        "confidence", "confidence_score", "probability"
-    ],
-
-    "subject": [
-    "subject", "subject_name", "entity_1",
-    "entity1", "head", "source_entity"
-    ],
-
-"subject_type": [
-    "subject_type", "entity_1_type",
-    "entity1_type", "head_type"
-],
-
-"subject_id": [
-    "subject_id", "entity_1_id",
-    "entity1_id", "head_id"
-],
-
-"predicate": [
-    "predicate", "relation", "relation_type",
-    "interaction", "label", "cpr"
-],
-
-"object": [
-    "object", "object_name", "entity_2",
-    "entity2", "tail", "target_entity"
-],
-
-"object_type": [
-    "object_type", "entity_2_type",
-    "entity2_type", "tail_type"
-],
-
-"object_id": [
-    "object_id", "entity_2_id",
-    "entity2_id", "tail_id"
-],
-
-"doi": ["doi", "digital_object_identifier"],
-
-"evidence_polarity": [
-    "evidence_polarity", "polarity", "finding"
-],
-
-"publication_year": [
-    "publication_year", "year", "pub_year"
-],
-
-"dataset_version": [
-    "dataset_version", "version"
-],
-
-"statistical_significance": [
-    "statistical_significance", "significance", "p_value"
-],
-
-"effect_direction": [
-    "effect_direction", "direction"
-],
-
-"effect_size": [
-    "effect_size", "odds_ratio", "hazard_ratio"
-],
-
+"text": ["text","evidence_text","sentence","sentence_text","abstract","passage","description","statement","context","document_text"],
+"subject": ["subject","subject_name","subject_text","entity_1","entity1","head","head_text","source_entity","entity1_name","entity1name","variant/haplotypes","variant","variant_name","variant_id"],
+"subject_type": ["subject_type","entity_1_type","entity1_type","head_type","entity1type"],
+"subject_id": ["subject_id","entity_1_id","entity1_id","head_id","entity1_id"],
+"predicate": ["predicate","relation","relation_type","interaction","label","cpr","relation_label","association"],
+"object": ["object","object_name","object_text","entity_2","entity2","tail","tail_text","target_entity","entity2_name","entity2name","drug(s)","drug","chemical","phenotype","phenotype_category"],
+"object_type": ["object_type","entity_2_type","entity2_type","tail_type","entity2type"],
+"object_id": ["object_id","entity_2_id","entity2_id","tail_id"],
+"gene": ["gene","gene_name","gene_symbol"],
+"chemical": ["chemical","chemical_name","drug","drug_name","compound","drugbank_name"],
+"pmid": ["pmid","pubmed_id","pubmedid"],
+"source": ["source","dataset","database","corpus"],
+"source_id": ["source_id","record_id","document_id","doc_id","id","annotation_id"],
+"split": ["split","partition"],
+"evidence_type": ["evidence_type","record_type","annotation_type","evidence"],
+"url": ["url","link","source_url"],
+"doi": ["doi","digital_object_identifier"],
+"confidence": ["confidence","confidence_score","probability","score"],
+"evidence_polarity": ["evidence_polarity","polarity","finding","direction_of_association"],
+"publication_year": ["publication_year","year","pub_year"],
+"dataset_version": ["dataset_version","version"],
+"statistical_significance": ["statistical_significance","significance","p_value","pvalue"],
+"effect_direction": ["effect_direction","direction","direction_of_effect"],
+"effect_size": ["effect_size","odds_ratio","hazard_ratio"],
 }
 
-def val(row,key):
-    d={str(k).lower():v for k,v in row.items()}
-    for alias in ALIASES[key]:
-        if alias in d and d[alias] is not None: return re.sub(r"\s+"," ",str(d[alias])).strip()
+def _clean(v: Any) -> str:
+    if v is None: return ""
+    if isinstance(v, (list, tuple)): return "; ".join(map(str, v))
+    return re.sub(r"\s+", " ", str(v)).strip()
+
+def val(row: dict, key: str) -> str:
+    low = {str(k).strip().lower(): v for k,v in row.items()}
+    for alias in ALIASES.get(key, [key]):
+        if alias.lower() in low and low[alias.lower()] not in (None, ""):
+            return _clean(low[alias.lower()])
     return ""
-def convert(row,fallback):
-    text = val(row, "text")
-    
+
+def infer_type(name: str, explicit: str = "") -> str:
+    t = re.sub(r"[^A-Z]", "", (explicit or "").upper())
+    mapping = {"GENE":"GENE","VARIANT":"VARIANT","SNP":"VARIANT","DRUG":"DRUG","CHEMICAL":"CHEMICAL","PROTEIN":"PROTEIN","DISEASE":"DISEASE","PHENOTYPE":"PHENOTYPE","PATHWAY":"PATHWAY"}
+    if t in mapping: return mapping[t]
+    n = (name or "").strip()
+    if re.match(r"^rs\d+$", n, re.I): return "VARIANT"
+    return "UNKNOWN"
+
+def convert(row: dict, fallback: str = "uploaded", file_name: str = "") -> Record | None:
+    text = val(row,"text")
+    subject, obj, predicate = val(row,"subject"), val(row,"object"), val(row,"predicate")
+    gene, chemical = val(row,"gene"), val(row,"chemical")
+    # Explicit table-specific mappings for common PharmGKB annotation exports.
+    # These relation labels describe the annotation table, not causal effects.
+    table = (file_name or fallback).casefold()
+    if "var_drug_ann" in table:
+        subject = subject or val(row,"subject")
+        obj = obj or val(row,"object")
+        predicate = predicate or "VARIANT_ANNOTATED_FOR_DRUG_RESPONSE"
+        if not val(row,"subject_type"): row = {**row, "subject_type": "VARIANT"}
+        if not val(row,"object_type"): row = {**row, "object_type": "DRUG"}
+    elif "var_fa_ann" in table:
+        subject = subject or val(row,"subject")
+        obj = obj or gene
+        predicate = predicate or "VARIANT_HAS_FUNCTIONAL_ANNOTATION_FOR_GENE"
+        if not val(row,"subject_type"): row = {**row, "subject_type": "VARIANT"}
+        if not val(row,"object_type"): row = {**row, "object_type": "GENE"}
+    elif "var_pheno_ann" in table:
+        subject = subject or val(row,"subject")
+        obj = obj or val(row,"object")
+        predicate = predicate or "VARIANT_ANNOTATED_WITH_PHENOTYPE"
+        if not val(row,"subject_type"): row = {**row, "subject_type": "VARIANT"}
+        if not val(row,"object_type"): row = {**row, "object_type": "PHENOTYPE"}
+    if not subject and gene: subject = gene
+    if not obj and chemical: obj = chemical
     if not text:
-        entity_1 = str(row.get("entity_1") or "").strip()
-        entity_2 = str(row.get("entity_2") or "").strip()
-        relation = val(row, "relation")
-        if entity_1 or entity_2:
-            text = " ".join(
-            part for part in [entity_1, relation, entity_2] if part
-        )
-        if not text:
-            return None
-    gene,chem,rel=val(row,"gene"),val(row,"chemical"),val(row,"relation")
-    src=val(row,"source") or fallback
-    sid=val(row,"source_id") or hashlib.sha1((text+gene+chem+rel+src).encode()).hexdigest()[:16]
-    rid=str(row.get("id") or f"{src}:{sid}")
-
-   
-    confidence_raw = val(row, "confidence")
+        text = " ".join(x for x in (subject,predicate,obj) if x)
+    if not text: return None
+    source = val(row,"source") or fallback or Path(file_name).stem
+    source_id = val(row,"source_id")
+    stable = json.dumps(row, sort_keys=True, ensure_ascii=False, default=str)
+    source_id = source_id or hashlib.sha256((source+"|"+stable).encode()).hexdigest()[:20]
+    rid = f"{source}:{source_id}"
+    conf = None
+    raw_conf = val(row,"confidence")
     try:
-        confidence = float(confidence_raw) if confidence_raw else None
-    except (TypeError, ValueError):
-        confidence = None
-
+        conf = float(raw_conf) if raw_conf else None
+        if conf is not None and not 0 <= conf <= 1: conf = None
+    except ValueError: pass
+    year = None
+    try: year = int(val(row,"publication_year")) if val(row,"publication_year") else None
+    except ValueError: pass
+    polarity_raw = val(row,"evidence_polarity").upper()
+    polarity_map = {"POSITIVE":"POSITIVE","SUPPORTS":"POSITIVE","ASSOCIATED":"POSITIVE","NEGATIVE":"NEGATIVE","CONTRADICTS":"NEGATIVE","UNCERTAIN":"UNCERTAIN","MIXED":"UNCERTAIN"}
+    polarity = polarity_map.get(polarity_raw, "NOT_ASSESSED")
+    s_type = infer_type(subject, val(row,"subject_type"))
+    o_type = infer_type(obj, val(row,"object_type"))
     return Record(
-        id=rid,
-        text=text,
-        gene=gene,
-        chemical=chem,
-        relation=rel,
-        entity_1=val(row, "entity_1"),
-        entity_2=val(row, "entity_2"),
-        pmid=val(row, "pmid"),
-        source=src,
-        source_id=sid,
-        split=val(row, "split"),
-        evidence_type=val(row, "evidence_type") or "literature",
-        url=val(row, "url"),
-        confidence=confidence,
+        id=rid, text=text, subject=subject, subject_type=s_type,
+        subject_id=val(row,"subject_id"), predicate=predicate,
+        object=obj, object_type=o_type, object_id=val(row,"object_id"),
+        source=source, source_id=source_id, pmid=val(row,"pmid"),
+        doi=val(row,"doi"), url=val(row,"url"),
+        evidence_type=val(row,"evidence_type") or "unspecified",
+        dataset_version=val(row,"dataset_version"), publication_year=year,
+        evidence_polarity=polarity, confidence=conf,
+        statistical_significance=val(row,"statistical_significance"),
+        effect_direction=val(row,"effect_direction"), effect_size=val(row,"effect_size"),
+        gene=gene or (subject if s_type=="GENE" else ""),
+        chemical=chemical or (obj if o_type in {"DRUG","CHEMICAL"} else ""),
+        relation=predicate, entity_1=subject, entity_2=obj,
+        split=val(row,"split"), original_record=row
     )
 
-
-def read_records(path,source):
+def read_records(path, source=None):
     p=Path(path); ext=p.suffix.lower()
-    if ext in (".csv",".tsv"):
-        with p.open(encoding="utf-8-sig",newline="") as f: rows=list(csv.DictReader(f,delimiter="\t" if ext==".tsv" else ","))
+    if ext in {".csv",".tsv"}:
+        with p.open(encoding="utf-8-sig", newline="") as f:
+            rows=list(csv.DictReader(f, delimiter="\t" if ext==".tsv" else ","))
     elif ext==".jsonl":
         rows=[json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
     elif ext==".json":
         obj=json.loads(p.read_text(encoding="utf-8"))
-        rows=obj if isinstance(obj,list) else next((obj[k] for k in ("records","data","documents","annotations") if isinstance(obj.get(k),list)),[obj])
+        if isinstance(obj,list): rows=obj
+        elif isinstance(obj,dict):
+            rows=next((obj[k] for k in ("records","data","documents","annotations","examples") if isinstance(obj.get(k),list)),[obj])
+        else: rows=[]
     elif ext==".txt":
         rows=[{"text":x,"source_id":str(i)} for i,x in enumerate(p.read_text(encoding="utf-8").split("\n\n")) if x.strip()]
-    else: raise ValueError("Supported: csv, tsv, json, jsonl, txt")
-    return [r for row in rows if isinstance(row,dict) if (r:=convert(row,source))]
+    else: raise ValueError(f"Unsupported file: {p.name}")
+    label=source or p.stem
+    out=[]
+    for row in rows:
+        if isinstance(row,dict):
+            rec=convert(row,label,p.name)
+            if rec: out.append(rec)
+    return out
+
 def load():
-    if not DATA.exists():
-        return []
-
-    records = []
-    migrated = False
-
-    for line_no, line in enumerate(
-        DATA.read_text(encoding="utf-8").splitlines(), start=1
-    ):
-        if not line.strip():
-            continue
-
+    if not DATA.exists(): return []
+    records=[]
+    for line in DATA.read_text(encoding="utf-8").splitlines():
         try:
-            row = json.loads(line)
+            row=json.loads(line)
+            if isinstance(row,dict):
+                try: records.append(Record.model_validate(row))
+                except Exception:
+                    rec=convert(row,"legacy")
+                    if rec: records.append(rec)
+        except Exception: continue
+    return deduplicate(records)
 
-            if not isinstance(row, dict):
-                print(f"Skipping invalid record at line {line_no}")
-                continue
-
-            try:
-                record = Record.model_validate(row)
-                records.append(record)
-                continue
-            except Exception:
-                # Convert legacy records to the current schema.
-                migrated = True
-
-            record = convert(row, "legacy")
-
-            if record is not None:
-                records.append(record)
-            else:
-                print(
-                    f"Skipping record at line {line_no}: "
-                    "no usable evidence text found."
-                )
-
-        except (json.JSONDecodeError, TypeError) as exc:
-            print(f"Skipping malformed JSON at line {line_no}: {exc}")
-
-    if migrated:
-        save(records)
-
-    return records
+def deduplicate(records):
+    seen=set(); out=[]
+    for r in records:
+        key=(r.source.casefold(),r.source_id or r.id, r.pmid, r.subject.casefold(),r.predicate.casefold(),r.object.casefold(),hashlib.sha1(r.text.encode()).hexdigest())
+        if key not in seen: seen.add(key); out.append(r)
+    return out
 
 def save(records):
-    DATA.parent.mkdir(parents=True, exist_ok=True)
-
-    seen = set()
-    clean = []
-
-    for record in records:
-        # Deduplicate only the same source assertion.
-        key = (
-            record.id,
-            record.source,
-            record.source_id,
-            record.pmid,
-            record.doi,
-        )
-
-        if key not in seen:
-            seen.add(key)
-            clean.append(record)
-
-    DATA.write_text(
-        "".join(
-            record.model_dump_json() + "\n"
-            for record in clean
-        ),
-        encoding="utf-8",
-    )
-
+    DATA.parent.mkdir(parents=True,exist_ok=True)
+    clean=deduplicate(records)
+    DATA.write_text("".join(x.model_dump_json()+"\n" for x in clean),encoding="utf-8")
     return len(clean)
 
-
-def ingest(path,source):
+def ingest(path, source=None):
     new=read_records(path,source)
-    return len(new),save(load()+new)
-def search(query,k=8):
-    rs=load()
-    if not rs:return [],{"abstained":True,"answer":"No evidence records indexed yet.","used_evidence":[]}
-    docs=[" ".join([r.text,r.gene,r.chemical,r.relation,r.pmid,r.source]) for r in rs]
-    tokens=[re.findall(r"[a-zA-Z0-9_*:-]+",x.lower()) for x in docs]
-    qtok=re.findall(r"[a-zA-Z0-9_*:-]+",query.lower())
-    bm=np.array(BM25Okapi(tokens).get_scores(qtok),dtype=float)
-    bm=bm/bm.max() if bm.max()>0 else bm
-    vec=TfidfVectorizer(ngram_range=(1,2),sublinear_tf=True)
-    mat=vec.fit_transform(docs)
-    sem=cosine_similarity(vec.transform([query]),mat).ravel()
-    sem=sem/sem.max() if sem.max()>0 else sem
-    q=query.lower()
-    graph=np.array([sum(1 for x in (r.gene,r.chemical,r.relation) if x and x.lower() in q) for r in rs],dtype=float)
-    graph=graph/graph.max() if graph.max()>0 else graph
-    score=.4*bm+.35*sem+.25*graph
-    order=np.argsort(score)[::-1][:k]
-    hits=[{"record":rs[i],"score":float(score[i]),"bm25":float(bm[i]),"tfidf":float(sem[i]),"graph":float(graph[i])} for i in order]
+    return len(new), save(load()+new)
+
+def _tokens(s): return re.findall(r"[a-zA-Z0-9_*:-]+", (s or "").casefold())
+
+def search(query, k=8):
+    records=load()
+    if not records:
+        return [], {"abstained":True,"answer":"No evidence has been indexed.","used_evidence":[]}
+    docs=[]
+    for r in records:
+        docs.append(" ".join([r.text,r.subject,r.predicate,r.object,r.gene,r.chemical,r.pmid,r.source]))
+    token_docs=[_tokens(d) or ["empty"] for d in docs]
+    qtokens=_tokens(query)
+    if not qtokens:
+        return [], {"abstained":True,"answer":"Please enter a biomedical research question.","used_evidence":[]}
+    bm=np.asarray(BM25Okapi(token_docs).get_scores(qtokens),dtype=float)
+    if bm.max()>0: bm=bm/bm.max()
+    try:
+        vec=TfidfVectorizer(ngram_range=(1,2),sublinear_tf=True, min_df=1)
+        matrix=vec.fit_transform(docs)
+        sem=cosine_similarity(vec.transform([query]),matrix).ravel()
+        if sem.max()>0: sem=sem/sem.max()
+    except ValueError: sem=np.zeros(len(records))
+    qnorm=query.casefold()
+    # Structured entity match: exact normalized entity mention, not claimed as graph traversal.
+    structured=np.array([sum(1 for x in (r.subject,r.object,r.gene,r.chemical) if x and x.casefold() in qnorm) for r in records],dtype=float)
+    if structured.max()>0: structured=structured/structured.max()
+    score=.40*bm+.35*sem+.25*structured
+    order=np.argsort(score)[::-1]
+    hits=[]; seen=set()
+    for i in order:
+        r=records[int(i)]
+        assertion=(r.subject.casefold(),r.predicate.casefold(),r.object.casefold(),r.source.casefold(),r.pmid)
+        if assertion in seen: continue
+        seen.add(assertion)
+        hits.append({"record":r,"score":float(score[i]),"bm25":float(bm[i]),"semantic_tfidf":float(sem[i]),"entity_match":float(structured[i])})
+        if len(hits)>=max(1,int(k)): break
     chosen=[h for h in hits if h["score"]>=MIN_SCORE]
     if len(chosen)<MIN_EVIDENCE:
-        return hits,{"abstained":True,"answer":"Insufficient indexed evidence above the configured threshold. Add relevant source records or narrow the research question.","used_evidence":[]}
-    ctx="\n\n".join(f'[{h["record"].id}] {h["record"].text} (gene={h["record"].gene}; chemical={h["record"].chemical}; relation={h["record"].relation}; source={h["record"].source}; PMID={h["record"].pmid})' for h in chosen[:6])
+        return hits, {"abstained":True,"answer":"Insufficient evidence above the configured retrieval threshold. Treat retrieved records as leads, not verified conclusions.","used_evidence":[]}
+    # Conservative answer: LLM is asked to synthesize only supplied evidence and cite record IDs.
+    context="\n\n".join(f"[{h['record'].id}] {h['record'].text}\nTriple: {h['record'].subject} --{h['record'].predicate}--> {h['record'].object}\nSource: {h['record'].source}; PMID: {h['record'].pmid or 'not supplied'}" for h in chosen[:8])
+    answer="Retrieved evidence is listed below. Review the source records before drawing a biological conclusion."
     if API_KEY:
         try:
             from openai import OpenAI
-            c=OpenAI(api_key=API_KEY)
-            out=c.chat.completions.create(model=MODEL,temperature=0,messages=[
-             {"role":"system","content":"You are a biomedical literature research assistant. Use only supplied evidence. Do not provide clinical advice. Distinguish chemical-protein benchmark relations from clinical pharmacogenomic evidence. Cite every factual claim using exact evidence IDs in square brackets. State uncertainty and conflicts. Never invent sources."},
-             {"role":"user","content":f"Question: {query}\nEvidence:\n{ctx}\nWrite a cautious evidence synthesis."}])
-            ans=out.choices[0].message.content or ""
-            ids=[h["record"].id for h in chosen[:6]]
-            if not any(i in ans for i in ids):return hits,{"abstained":True,"answer":"Generated response lacked a verifiable evidence ID. Inspect retrieved records instead.","used_evidence":[]}
-            return hits,{"abstained":False,"answer":ans,"used_evidence":ids}
-        except Exception:pass
-    return hits,{"abstained":False,"answer":"Extractive evidence summary (LLM not configured):\n\n"+ctx+"\n\nVerify original records before interpretation.","used_evidence":[h["record"].id for h in chosen[:6]]}
+            client=OpenAI(api_key=API_KEY)
+            response=client.chat.completions.create(
+                model=MODEL,temperature=0,
+                messages=[
+                    {"role":"system","content":"You are a cautious biomedical research assistant, not a clinician. Answer only from the supplied records. Distinguish reported associations from causal claims. Do not infer missing evidence or treat chemical-protein interactions as clinical recommendations. Cite every factual claim with exact record IDs in square brackets. If records do not answer the question, say so. Explicitly mention when PMID or source metadata is missing."},
+                    {"role":"user","content":f"Question: {query}\n\nEvidence records:\n{context}\n\nGive a concise answer and a short evidence table."}
+                ])
+            answer=response.choices[0].message.content or answer
+        except Exception as e:
+            answer += f"\nLLM synthesis unavailable ({type(e).__name__}); inspect the retrieved records."
+    return hits, {"abstained":False,"answer":answer,"used_evidence":[h["record"].id for h in chosen[:8]]}
