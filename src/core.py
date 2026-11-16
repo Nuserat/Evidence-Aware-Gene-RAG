@@ -51,7 +51,7 @@ ALIASES = {
 "object_id": ["object_id","entity_2_id","entity2_id","tail_id"],
 "gene": ["gene","gene_name","gene_symbol"],
 "chemical": ["chemical","chemical_name","drug","drug_name","compound","drugbank_name"],
-"pmid": ["pmid","pubmed_id","pubmedid"],
+"pmid": ["pmid","pmids","pubmed_id","pubmedid","pubmed_ids"],
 "source": ["source","dataset","database","corpus"],
 "source_id": ["source_id","record_id","document_id","doc_id","id","annotation_id"],
 "split": ["split","partition"],
@@ -154,27 +154,77 @@ def convert(row: dict, fallback: str = "uploaded", file_name: str = "") -> Recor
     )
 
 def read_records(path, source=None):
-    p=Path(path); ext=p.suffix.lower()
-    if ext in {".csv",".tsv"}:
+    p = Path(path)
+    ext = p.suffix.lower()
+
+    if ext in {".csv", ".tsv"}:
         with p.open(encoding="utf-8-sig", newline="") as f:
-            rows=list(csv.DictReader(f, delimiter="\t" if ext==".tsv" else ","))
-    elif ext==".jsonl":
-        rows=[json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
-    elif ext==".json":
-        obj=json.loads(p.read_text(encoding="utf-8"))
-        if isinstance(obj,list): rows=obj
-        elif isinstance(obj,dict):
-            rows=next((obj[k] for k in ("records","data","documents","annotations","examples") if isinstance(obj.get(k),list)),[obj])
-        else: rows=[]
-    elif ext==".txt":
-        rows=[{"text":x,"source_id":str(i)} for i,x in enumerate(p.read_text(encoding="utf-8").split("\n\n")) if x.strip()]
-    else: raise ValueError(f"Unsupported file: {p.name}")
-    label=source or p.stem
-    out=[]
-    for row in rows:
-        if isinstance(row,dict):
-            rec=convert(row,label,p.name)
-            if rec: out.append(rec)
+            rows = list(csv.DictReader(
+                f, delimiter=chr(9) if ext == ".tsv" else ","
+            ))
+    elif ext == ".jsonl":
+        rows = [
+            json.loads(line)
+            for line in p.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    elif ext == ".json":
+        obj = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(obj, list):
+            rows = obj
+        elif isinstance(obj, dict):
+            rows = next(
+                (obj[k] for k in
+                 ("records", "data", "documents", "annotations", "examples")
+                 if isinstance(obj.get(k), list)),
+                [obj]
+            )
+        else:
+            rows = []
+    elif ext == ".txt":
+        rows = [
+            {"text": part, "source_id": str(i)}
+            for i, part in enumerate(
+                p.read_text(encoding="utf-8").split("\\n\\n")
+            ) if part.strip()
+        ]
+    else:
+        raise ValueError(f"Unsupported file: {p.name}")
+
+    label = source or p.stem
+    out = []
+
+    for row_index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+
+        triples = row.get("triple_list")
+
+        if isinstance(triples, list):
+            for triple_index, triple in enumerate(triples):
+                if not isinstance(triple, (list, tuple)) or len(triple) < 3:
+                    continue
+
+                expanded = {
+                    **row,
+                    "subject": _clean(triple[0]),
+                    "predicate": _clean(triple[1]),
+                    "object": _clean(triple[2]),
+                    "source": label,
+                    "source_id": (
+                        f"{label}_{row_index:06d}_"
+                        f"triple_{triple_index:03d}"
+                    ),
+                }
+
+                rec = convert(expanded, label, p.name)
+                if rec:
+                    out.append(rec)
+        else:
+            rec = convert(row, label, p.name)
+            if rec:
+                out.append(rec)
+
     return out
 
 def load():

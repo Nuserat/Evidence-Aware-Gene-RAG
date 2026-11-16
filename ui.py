@@ -7,6 +7,125 @@ from src.core import load,ingest,search,save
 from src.config import UPLOADS,TOP_K
 from src.knowledge_graph import build_knowledge_graph,render_knowledge_graph,detect_evidence_conflicts,export_rdf_turtle
 
+from pathlib import Path
+
+from src.config import DATASET, DATA
+from src.core import read_records, rebuild_from_dataset, load
+from src.knowledge_graph import build_knowledge_graph
+
+print("\n========== DATASET PATH ==========")
+print("Dataset:", DATASET.resolve())
+print("Index:", DATA.resolve())
+
+print("\n========== SOURCE FILES ==========")
+
+for p in DATASET.rglob("train_triples.json"):
+    print("Found:", p.resolve())
+
+train_file = next(
+    DATASET.rglob("train_triples.json"),
+    None
+)
+
+if train_file is None:
+    print("ERROR: train_triples.json NOT FOUND")
+    print("Copy the original source file into dataset/")
+    raise SystemExit(1)
+
+print("\n========== PARSER TEST ==========")
+
+parsed = read_records(train_file, train_file.name)
+
+print("Parsed records:", len(parsed))
+
+valid = [
+    r for r in parsed
+    if r.subject and r.predicate and r.object
+]
+
+print("Valid SPO records:", len(valid))
+
+target = next(
+    (
+        r for r in parsed
+        if "5-Fluorouracil" in r.text
+        and "thymidylate synthase" in r.text
+    ),
+    None
+)
+
+if target:
+    print("\n5-FLUOROURACIL TEST:")
+    print("Subject:", repr(target.subject))
+    print("Predicate:", repr(target.predicate))
+    print("Object:", repr(target.object))
+    print("Source:", target.source)
+else:
+    print("5-Fluorouracil record not found")
+
+print("\n========== REBUILD INDEX ==========")
+
+total, counts = rebuild_from_dataset(DATASET)
+
+print("Rebuilt total:", total)
+print("Source file counts:")
+
+for name, count in counts.items():
+    print(name, ":", count)
+
+print("\n========== GRAPH TEST ==========")
+
+records = load()
+
+print("Loaded records:", len(records))
+
+graph, evidence = build_knowledge_graph(records)
+
+print("Entities:", graph.number_of_nodes())
+print("Evidence edges:", graph.number_of_edges())
+
+print("\n========== FINAL CHECK ==========")
+
+if graph.number_of_edges() > 0:
+    print("SUCCESS: Graph relationships created.")
+else:
+    print("FAILED: No graph relationships created.")
+
+records = load()
+
+total = len(records)
+
+valid_triples = [
+    r for r in records
+    if r.subject and r.predicate and r.object
+]
+
+st.metric("Indexed records", total)
+st.metric("Explicit SPO records", len(valid_triples))
+
+st.write("Example parsed triple:")
+
+if valid_triples:
+    r = next(
+        (
+            x for x in valid_triples
+            if "5-Fluorouracil" in x.subject
+        ),
+        valid_triples[0]
+    )
+
+    st.json({
+        "subject": r.subject,
+        "predicate": r.predicate,
+        "object": r.object,
+        "source": r.source,
+        "source_id": r.source_id,
+        "evidence": r.text
+    })
+else:
+    st.warning(
+        "No explicit subject-predicate-object records found."
+    )
 st.set_page_config(page_title="PharmaGraph-RAG",page_icon="🧬",layout="wide")
 st.title("🧬 PharmaGraph-RAG")
 st.caption("Evidence-aware pharmacogenomic research assistant | Research prototype — not clinical advice")
